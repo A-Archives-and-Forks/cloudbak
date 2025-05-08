@@ -45,7 +45,7 @@ docker run --name=cloudbak --restart=always -d \
 ## 交流与提问
 
 精力有限，遇到问题需要优先自己处理，顺序：
-1. 详细阅读文档
+1. 详细阅读文档或搜索社区
 2. 搜索引擎/AI 搜索
 3. 交流群寻求帮助（群主大部分时间不保证答复）
 4. 提ISSUE
@@ -65,4 +65,6 @@ docker run --name=cloudbak --restart=always -d \
 * DAT 转图片：记不得看的哪个了，网上挺多的
 * 无源 protobuf 反序列化
 
+## Star History
 
+[![Star History Chart](https://api.star-history.com/svg?repos=likeflyme/cloudbak&type=Date)](https://www.star-history.com/#likeflyme/cloudbak&Date)
