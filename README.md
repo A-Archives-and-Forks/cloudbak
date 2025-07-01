@@ -52,7 +52,9 @@ docker run --name=cloudbak --restart=always -d \
 
 社区: [https://forum.cloudbak.org](http://forum.cloudbak.org.cn)
 
-交流群：993046283
+交流群：
+* 1群：~~993046283~~ 已满
+* 2群：925328506
 
 微信群：添加微信 `MMXC2024` 后邀请进群
 
