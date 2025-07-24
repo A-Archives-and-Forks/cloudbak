@@ -209,7 +209,11 @@ class MessageManagerWindowsV3(MessageManager):
             sender = self.client.get_sys_session().wx_id
         windows_v3_properties.sender = sender
         windows_v3_properties.thumb = thumb
-        windows_v3_properties.source = source
+        if source:
+            source_path = os.path.join(self.client.get_session_dir(), source)
+            # 如果 source_path 文件存在，则设置 windows_v3_properties.source 为 source
+            if os.path.exists(source_path):
+                windows_v3_properties.source = source_path
 
         if db_msg.CompressContent:
             compress_content = MsgUtils.parse_compress_content(db_msg.CompressContent)
