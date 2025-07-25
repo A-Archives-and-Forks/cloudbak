@@ -68,7 +68,7 @@ const queryReverse = reactive({
   size: 20,
   start: 0,
   start_db: '',
-  filter_mode: 0,
+  filter_mode: 1,
   filter_text: '',
   filter_day: '',
   filter_media: false,
