@@ -1,6 +1,6 @@
 import array
 
-from sqlalchemy import inspect, select, func
+from sqlalchemy import inspect, select, func, literal_column
 
 from app.enum.msg_enum import FilterMode
 from config.log_config import logger
@@ -118,7 +118,7 @@ class MessageManagerWindowsV4(MessageManager):
             limit = left
             name2id_subquery = (
                 select(
-                    func.row_number().over(order_by=None).label("row_num"),
+                    literal_column("Name2Id.rowid").label("row_num"),
                     Name2Id.user_name
                 ).subquery("b")
             )

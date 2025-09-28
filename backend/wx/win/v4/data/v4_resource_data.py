@@ -1,11 +1,12 @@
 import os.path
 
+from datetime import datetime
 from sqlalchemy import select, func
 
 from config.log_config import logger
 from wx.interface.wx_interface import ResourceManager, ClientInterface
 from wx.win.v4.enums.v4_enums import V4DBEnum
-from wx.win.v4.models.hardlink import Dir2IdModel, VideoHardlinkInfoModel
+from wx.win.v4.models.hardlink import Dir2IdModel, Dir2IdModel, VideoHardlinkInfoModelV3, VideoHardlinkInfoModelV4, ImageHardlinkInfoModelV3, ImageHardlinkInfoModelV4
 from wx.win.v4.models.head_image import HeadImageModel
 
 
@@ -52,7 +53,9 @@ class WindowsV4ResourceManager(ResourceManager):
         logger.info("head_image库中不存在数据")
         return None
 
-    def get_video_poster(self, md5: str) -> str | None:
+    def get_video_poster(self, md5: str, msg_create_time: int) -> str | None:
+        # 优先从表中获取
+        logger.info("从hardlink表中获取视频封面")
         sm = self.client.get_db_manager().wx_db(V4DBEnum.HARDLINK_DB_PATH)
         dir2id_subquery = (
             select(
@@ -60,23 +63,70 @@ class WindowsV4ResourceManager(ResourceManager):
                 Dir2IdModel.username
             ).subquery("b")
         )
-        stmt = (
-            select(VideoHardlinkInfoModel, dir2id_subquery)
-            .join(dir2id_subquery, VideoHardlinkInfoModel.dir1 == dir2id_subquery.c.row_num, isouter=True)
-            .where(VideoHardlinkInfoModel.md5.is_(md5))
-        )
-        with sm() as db:
-            row = db.execute(stmt).first()
-            if not row:
-                return None
-            logger.info(f"hardlink data: {row}")
-            hardlink = row[0]
-            # row_num = row[1]
-            dir_name = row[2]
-            name, ext = hardlink.file_name.rsplit('.', 1)
-            return f"{self.client.get_wx_dir()}/msg/video/{dir_name}/{name}_thumb.jpg"
 
-    def get_video(self, md5: str) -> str | None:
+        # 获取表版本
+        table_version = self._get_table_version()
+        logger.info(f"当前hardlink库版本: {table_version}")
+        # 根据版本选择对应的模型
+        if table_version == 4:
+            VideoModel = VideoHardlinkInfoModelV4
+        else:
+            VideoModel = VideoHardlinkInfoModelV3
+
+        stmt = (
+            select(VideoModel, dir2id_subquery)
+            .join(dir2id_subquery, VideoModel.dir1 == dir2id_subquery.c.row_num, isouter=True)
+            .where(VideoModel.md5.is_(md5))
+        )
+        with sm() as db:
+            row = db.execute(stmt).first()
+            if row:
+                logger.info(f"hardlink data: {row}")
+                hardlink = row[0]
+                # row_num = row[1]
+                dir_name = row[2]
+                name, ext = hardlink.file_name.rsplit('.', 1)
+                poster_abs_path = f"{self.client.get_wx_dir()}/msg/video/{dir_name}/{name}.jpg"
+                if os.path.exists(poster_abs_path):
+                    logger.info(f"poster_abs_path: {poster_abs_path} 不存在")
+                    return poster_abs_path
+                poster_abs_path = f"{self.client.get_wx_dir()}/msg/video/{dir_name}/{name}_thumb.jpg"
+                if os.path.exists(poster_abs_path):
+                    logger.info(f"poster_abs_path: {poster_abs_path} 不存在")
+                    return poster_abs_path
+        logger.info("hardlink表中未找到视频封面")
+        # 规则为，优先获取清晰封面图
+        # msg/video/月份/{md5}.jpg
+        # msg/video/月份/{md5}_thumb.jpg
+        month = datetime.fromtimestamp(msg_create_time).strftime('%Y-%m')
+        folder = os.path.join(self.client.get_wx_dir(), 'msg', 'video', month)
+        poster_name = f"{md5}.jpg"
+        poster_abs_path = os.path.join(folder, poster_name)
+        logger.info(f"poster_abs_path: {poster_abs_path}")
+        if os.path.exists(poster_abs_path):
+            logger.info(f"poster_abs_path: {poster_abs_path} 存在")
+            return poster_abs_path  
+        poster_name = f"{md5}_thumb.jpg"
+        poster_abs_path = os.path.join(folder, poster_name)
+        logger.info(f"poster_abs_path: {poster_abs_path}")
+        if os.path.exists(poster_abs_path):
+            logger.info(f"poster_abs_path: {poster_abs_path} 存在")
+            return poster_abs_path
+        logger.info("规则路径中未找到视频封面")
+        return None
+
+
+    def get_video(self, md5: str, msg_create_time: int) -> str | None:
+        # 优先从表中获取
+        # 获取表版本
+        table_version = self._get_table_version()
+        logger.info(f"当前hardlink库版本: {table_version}")
+        # 根据版本选择对应的模型
+        if table_version == 4:
+            VideoModel = VideoHardlinkInfoModelV4
+        else:
+            VideoModel = VideoHardlinkInfoModelV3
+
         sm = self.client.get_db_manager().wx_db(V4DBEnum.HARDLINK_DB_PATH)
         dir2id_subquery = (
             select(
@@ -85,19 +135,30 @@ class WindowsV4ResourceManager(ResourceManager):
             ).subquery("b")
         )
         stmt = (
-            select(VideoHardlinkInfoModel, dir2id_subquery)
-            .join(dir2id_subquery, VideoHardlinkInfoModel.dir1 == dir2id_subquery.c.row_num, isouter=True)
-            .where(VideoHardlinkInfoModel.md5.is_(md5))
+            select(VideoModel, dir2id_subquery)
+            .join(dir2id_subquery, VideoModel.dir1 == dir2id_subquery.c.row_num, isouter=True)
+            .where(VideoModel.md5.is_(md5))
         )
         with sm() as db:
             row = db.execute(stmt).first()
-            if not row:
-                return None
-            logger.info(f"hardlink data: {row}")
-            hardlink = row[0]
-            # row_num = row[1]
-            dir_name = row[2]
-            return f"{self.client.get_wx_dir()}/msg/video/{dir_name}/{hardlink.file_name}"
+            if row:
+                logger.info(f"hardlink data: {row}")
+                hardlink = row[0]
+                # row_num = row[1]
+                dir_name = row[2]
+                return f"{self.client.get_wx_dir()}/msg/video/{dir_name}/{hardlink.file_name}"
+        logger.info("hardlink表中未找到视频")
+        # 规则为，msg/video/月份/{md5}.mp4
+        month = datetime.fromtimestamp(msg_create_time).strftime('%Y-%m')
+        folder = os.path.join(self.client.get_wx_dir(), 'msg', 'video', month)
+        video_name = f"{md5}.mp4"
+        video_abs_path = os.path.join(folder, video_name)
+        logger.info(f"video_abs_path: {video_abs_path}")
+        if os.path.exists(video_abs_path):
+            logger.info(f"video_abs_path: {video_abs_path} 存在")
+            return video_abs_path
+        logger.info("规则路径中未找到视频")
+        return None
 
     def get_member_head(self, username: str) -> bytearray:
         pass

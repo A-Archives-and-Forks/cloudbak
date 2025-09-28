@@ -45,7 +45,8 @@ patterns = [
     r'^teenager.db$',
     r'^tencentpay.db$',
     r'^wcfinder.db$',
-    r'^websearch.db$'
+    r'^websearch.db$',
+    r'^media_\d+.db'
 ]
 
 compiled_patterns = [re.compile(pattern) for pattern in patterns]
@@ -105,17 +106,20 @@ class WindowsV4Decryptor(Decryptor):
                             else:
                                 logger.info(f"file {decoded_file_name} not exists")
                         # 解密，解密的文件为原文件名加 decoded_ 前缀
-                        is_success = decrypt_db_file_v4(db_file, sys_session.wx_key, decoded_db_file)
-                        if is_success:
-                            logger.info("decrypt success, record file modification_time")
-                            if record is None:
-                                record = SysDecryptRecord(db_file=filename, file_last_ts=modification_time,
-                                                          session_id=sys_session.id)
-                                db.add(record)
-                                db.commit()
-                            else:
-                                record.file_last_ts = modification_time
-                                db.commit()
+                        try:
+                            is_success = decrypt_db_file_v4(db_file, sys_session.wx_key, decoded_db_file)
+                            if is_success:
+                                logger.info("decrypt success, record file modification_time")
+                                if record is None:
+                                    record = SysDecryptRecord(db_file=filename, file_last_ts=modification_time,
+                                                              session_id=sys_session.id)
+                                    db.add(record)
+                                    db.commit()
+                                else:
+                                    record.file_last_ts = modification_time
+                                    db.commit()
+                        except Exception as e:
+                            logger.error(e)
 
 
 def decrypt_db_file_v4(path: str, pkey: str, output_path: str):
@@ -127,9 +131,11 @@ def decrypt_db_file_v4(path: str, pkey: str, output_path: str):
 
     # If the file starts with SQLITE_HEADER, no decryption is needed
     if buf.startswith(SQLITE_HEADER):
+        logger = get_context_logger()
+        logger.info('file is already sqlite file')
         with open(output_path, 'wb') as out_file:
             out_file.write(buf)
-        return
+        return True
 
     decrypted_buf = bytearray()
 
@@ -156,10 +162,15 @@ def decrypt_db_file_v4(path: str, pkey: str, output_path: str):
     reserve = (reserve + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE * AES_BLOCK_SIZE
 
     total_page = len(buf) // PAGE_SIZE
+    # logger = get_context_logger()
     for cur_page in range(total_page):
         offset = SALT_SIZE if cur_page == 0 else 0
         start = cur_page * PAGE_SIZE
         end = start + PAGE_SIZE
+
+        # if end > len(buf):
+        #     logger.warning(f"Skip page {cur_page + 1}: exceeds buffer size")
+        #     continue
 
         # Compute HMAC hash for verification
         hash_mac = compute_hmac(mac_key, buf[start + offset:end - reserve + IV_SIZE], cur_page + 1)
@@ -167,8 +178,19 @@ def decrypt_db_file_v4(path: str, pkey: str, output_path: str):
         # Check if hash matches
         hash_mac_start_offset = end - reserve + IV_SIZE
         hash_mac_end_offset = hash_mac_start_offset + len(hash_mac)
-        if hash_mac != buf[hash_mac_start_offset:hash_mac_end_offset]:
-            raise Exception("Hash verification failed")
+        actual_mac = buf[hash_mac_start_offset:hash_mac_end_offset]
+
+        # 忽略全 0 的页面 HMAC（通常表示未写入）
+        if actual_mac == b'\x00' * len(hash_mac):
+            logger = get_context_logger()
+            logger.warning(f"Skip HMAC verification on page {cur_page + 1} (zero mac region)")
+        else:
+            if hash_mac != actual_mac:
+                logger = get_context_logger()
+                logger.error(f"HMAC verification failed at page {cur_page + 1}")
+                logger.error(f"Expected: {hash_mac.hex()}")
+                logger.error(f"Actual:   {actual_mac.hex()}")
+                raise Exception("Hash verification failed")
 
         # Decrypt the content using AES-256-CBC
         iv = buf[end - reserve:end - reserve + IV_SIZE]
@@ -206,3 +228,14 @@ def compute_hmac(mac_key, data, page_number):
     mac.update(data)
     mac.update(struct.pack("<I", page_number))  # Add the page number to the hash
     return mac.digest()
+
+
+if __name__ == '__main__':
+    # input_file = 'E:/workspace/sessions/10/wxid_b125nd5rc59r12_6675/db_storage/message/biz_message_0.db'
+    # output_file = 'E:/workspace/sessions/10/wxid_b125nd5rc59r12_6675/db_storage/message/decoded_biz_message_0.db'
+    input_file = 'E:\\微信文件\\xwechat_files\\wxid_b125nd5rc59r12_6675\\db_storage\\message\\biz_message_0.db'
+    output_file = 'E:\\微信文件\\xwechat_files\\wxid_b125nd5rc59r12_6675\\db_storage\\message\\decoded_biz_message_0.db'
+    # input_file = 'E:\\微信文件\\xwechat_files\\wxid_b125nd5rc59r12_6675\\db_storage\\message\\media_0.db'
+    # output_file = 'E:\\微信文件\\xwechat_files\\wxid_b125nd5rc59r12_6675\\db_storage\\message\\decoded_media_0.db'
+    key = '1e3c9e29a3b74c13a86f9a9f2ec5cd43e0d4f5b533614694a29a11236228414a'
+    decrypt_db_file_v4(input_file, key, output_file)
